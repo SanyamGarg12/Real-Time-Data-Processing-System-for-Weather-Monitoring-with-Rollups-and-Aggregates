@@ -1,177 +1,253 @@
 import requests
 import time
-from datetime import datetime, timezone
-from collections import defaultdict
-from datetime import date
+from datetime import datetime
 import matplotlib.pyplot as plt
 import mysql.connector
-from mysql.connector import Error
+import pandas as pd
+import os
 
+# OpenWeatherMap API key and cities to monitor
 API_KEY = '7c5de860ec41f4a02a0a246cad36b91e'
 CITIES = ['Delhi', 'Mumbai', 'Chennai', 'Bangalore', 'Kolkata', 'Hyderabad']
 BASE_URL = 'http://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric'
-UPDATE_INTERVAL = 200  # 5 minutes
+UPDATE_INERVAL = 2 # Update interval in seconds
 
-# A dictionary to store daily weather data for rollups
-daily_data = defaultdict(lambda: {'temps': [], 'conditions': []})
+# Database connection details
+db_config = {
+    'host': 'localhost',
+    'user': 'SANYAM',
+    'password': 'SANYAM',
+    'database': 'WEATHER_SANYAM'
+}
 
-def convert_temperature(temp_kelvin, unit="Celsius"):
-    if unit == "Celsius":
-        return temp_kelvin - 273.15
-    elif unit == "Fahrenheit":
-        return (temp_kelvin - 273.15) * 9/5 + 32
-    else:
-        return temp_kelvin  # Default is Kelvin
+# Define thresholds for alerts
+HIGH_TEMP_THRESHOLD = 35  # degrees Celsius
+LOW_TEMP_THRESHOLD = 10    # degrees Celsius
+HIGH_HUMIDITY_THRESHOLD = 80  # percent humidity
+LOW_HUMIDITY_THRESHOLD = 30   # percent humidity
+
+PLOTS_DIR = "plots"  # Directory to save plots
+
+def connect_db():
+    """Connect to the MySQL database.
+
+    @return: MySQL connection object if successful, None otherwise.
+    """
+    try:
+        connection = mysql.connector.connect(**db_config)
+        return connection
+    except mysql.connector.Error as err:
+        print(f"Error: {err}")
+        return None
 
 def get_weather_data(city):
+    """Fetch weather data for a given city from OpenWeatherMap API.
+
+    @param city: Name of the city for which weather data is requested.
+    @return: JSON response containing weather data if successful, None otherwise.
+    """
     response = requests.get(BASE_URL.format(city, API_KEY))
     if response.status_code == 200:
         return response.json()
-    else:
-        print(
-            f"Failed to fetch data for {city}: {response.status_code}, {response.text}")
-        return None
-
+    print(f"Failed to fetch data for {city}: {response.status_code}, {response.text}")
+    return None
 
 def process_weather_data(data):
+    """Extract relevant fields from the weather data.
+
+    @param data: JSON response containing weather data.
+    @return: Dictionary with extracted weather information or None if input is invalid.
+    """
     if data:
-        weather_main = data['weather'][0]['main']
-        temp = data['main']['temp']  # already in Celsius due to `units=metric`
-        feels_like = data['main']['feels_like']
-        timestamp = data['dt']
         return {
-            'temp': temp,
-            'feels_like': feels_like,
-            'weather_main': weather_main,
-            'timestamp': timestamp
+            'temp': data['main']['temp'],
+            'feels_like': data['main']['feels_like'],
+            'weather_main': data['weather'][0]['main'],
+            'timestamp': data['dt'],
+            'humidity': data['main']['humidity']
         }
     return None
 
-# Store data in daily summaries
-def update_daily_rollups(city, processed_data):
-    # Use fromtimestamp with UTC timezone
-    current_date = datetime.fromtimestamp(processed_data['timestamp'], tz=timezone.utc).strftime('%Y-%m-%d')
-    daily_data[city]['temps'].append(processed_data['temp'])
-    daily_data[city]['conditions'].append(processed_data['weather_main'])
-    
-    # Add a new list to store dates for the first time
-    if 'dates' not in daily_data[city]:
-        daily_data[city]['dates'] = []
-        
-    # Append the date if it's not already in the list
-    if current_date not in daily_data[city]['dates']:
-        daily_data[city]['dates'].append(current_date)
+def update_database(data):
+    """Update the MySQL database with the fetched weather data.
 
+    @param data: Dictionary containing weather data for each city.
+    @return: List of results fetched from the cities table after the update.
+    """
+    connection = connect_db()
+    if not connection:
+        return
 
-# Aggregates: daily summary calculations
-
-
-def calculate_daily_summary(city, date):
-    temps = daily_data[city]['temps']
-    conditions = daily_data[city]['conditions']
-    avg_temp = sum(temps) / len(temps)
-    max_temp = max(temps)
-    min_temp = min(temps)
-    # most frequent weather condition
-    dominant_condition = max(set(conditions), key=conditions.count)
-    return {
-        'city': city,
-        'date': date,
-        'avg_temp': avg_temp,
-        'max_temp': max_temp,
-        'min_temp': min_temp,
-        'dominant_condition': dominant_condition
-    }
-
-# Alerting mechanism
-
-
-def check_alerts(city, processed_data, threshold):
-    if processed_data['temp'] > threshold:
-        print(
-            f"ALERT: {city} has exceeded the temperature threshold of {threshold}°C. Current temperature: {processed_data['temp']}°C")
-
-def plot_temperature_trend(city):
-    dates = list(daily_data[city]['dates'])
-    temps = list(daily_data[city]['temps'])
-    
-    plt.plot(dates, temps)
-    plt.title(f'Temperature trend for {city}')
-    plt.xlabel('Date')
-    plt.ylabel('Temperature (°C)')
-    plt.show()
-    
-# Database connection details
-MYSQL_HOST = 'localhost'  # Change this to your MySQL server hostname
-MYSQL_USER = 'weather_user'       # Your MySQL username
-MYSQL_PASSWORD = 'new_password'  # Your MySQL password
-MYSQL_DATABASE = 'weather_data'  # The database you created
-
-# Function to connect to the MySQL database and store the summary
-def store_summary_in_db(summary):
     try:
-        # Establish connection to the MySQL database
-        conn = mysql.connector.connect(
-            host=MYSQL_HOST,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            database=MYSQL_DATABASE
-        )
-        if conn.is_connected():
-            print(f"Connected to MySQL database {MYSQL_DATABASE}")
+        cursor = connection.cursor()
+        for city, weather_data in data.items():
+            # SQL query to insert weather data into timestamp_average table
+            query = """
+                INSERT INTO timestamp_average (CityID, TimeStamp, Temp, Feels_Like, Humidity, Climate)
+                VALUES (
+                    (SELECT CityID FROM Cities WHERE CityName = %s),
+                    FROM_UNIXTIME(%s),
+                    %s, %s, %s, %s
+                )
+            """
+            cursor.execute(query, (city, weather_data['timestamp'], weather_data['temp'], 
+                                   weather_data['feels_like'], weather_data['humidity'], 
+                                   weather_data['weather_main']))
 
-        cursor = conn.cursor()
-
-        # Create table if it doesn't exist
-        cursor.execute('''CREATE TABLE IF NOT EXISTS weather_summary (
-                            id INT AUTO_INCREMENT PRIMARY KEY,
-                            city VARCHAR(255),
-                            date DATE,
-                            avg_temp FLOAT,
-                            max_temp FLOAT,
-                            min_temp FLOAT,
-                            dominant_condition VARCHAR(255)
-                          )''')
-
-        # Insert weather summary into the table
-        query = '''INSERT INTO weather_summary (city, date, avg_temp, max_temp, min_temp, dominant_condition)
-                   VALUES (%s, %s, %s, %s, %s, %s)'''
-        values = (summary['city'], summary['date'], summary['avg_temp'], 
-                  summary['max_temp'], summary['min_temp'], summary['dominant_condition'])
+        # Commit changes to the database
+        connection.commit()
+        cursor.close()
         
-        cursor.execute(query, values)
-        conn.commit()
-        print(f"Weather summary for {summary['city']} on {summary['date']} stored in database.")
+        # Fetch updated data for reporting
+        cursor = connection.cursor()
+        cursor.execute("SELECT * FROM cities")
+        results = cursor.fetchall()
+        cursor.close()
+        return results
 
-    except Error as e:
-        print(f"Error: {e}")
-    
+    except mysql.connector.Error as err:
+        print(f"Database error: {err}")
     finally:
-        if conn.is_connected():
-            cursor.close()
-            conn.close()
-            print("MySQL connection closed.")
+        if connection.is_connected():
+            connection.close()
 
-# Example: Call store_summary_in_db after generating daily summaries
-def generate_daily_summary():
-    today = date.today().strftime('%Y-%m-%d')
-    for city in CITIES:
-        if today in daily_data[city]['dates']:
-            summary = calculate_daily_summary(city, today)
-            print(f"Summary for {city} on {today}: {summary}")
-            store_summary_in_db(summary)
-        else:
-            print(f"No data for {city} today.")
+def extract_date_from_df(df):
+    """Extract the date from the DataFrame.
 
+    @param df: DataFrame containing timestamp data.
+    @return: Date extracted from the DataFrame.
+    """
+    df['Date'] = pd.to_datetime(df['TimeStamp']).dt.date
+    return df['Date'].iloc[0]
 
-for _ in range(10):
-    for city in CITIES:
-        data = get_weather_data(city)
-        if data:
-            processed_data = process_weather_data(data)
-            print(f"{city}: {processed_data}")
-            update_daily_rollups(city, processed_data)
-            check_alerts(city, processed_data, 35)
-    time.sleep(UPDATE_INTERVAL)
+def save_plot(directory, filename):
+    """Ensure the directory exists and save the plot.
 
-generate_daily_summary()
+    @param directory: Directory path to save the plot.
+    @param filename: Filename for the saved plot.
+    """
+    os.makedirs(directory, exist_ok=True)
+    plt.savefig(os.path.join(directory, filename))
+    plt.close()
+
+def plot_daily_weather(df):
+    """Generate and save plots for daily weather data.
+
+    @param df: DataFrame containing weather data for the day.
+    """
+    date = extract_date_from_df(df)  # Extract date from DataFrame
+    cities = df['CityName'].unique()  # Get unique city names
+    
+    for city in cities:
+        city_data = df[df['CityName'] == city]  # Filter data for the specific city
+        city_data['Serial'] = range(1, len(city_data) + 1)  # Serial number for x-axis
+
+        # Plot temperature data
+        plt.figure(figsize=(10, 6))
+        plt.plot(city_data['Serial'], city_data['Temp'], label='Temperature (°C)', color='blue')
+        plt.plot(city_data['Serial'], city_data['Feels_Like'], label='Feels Like (°C)', color='orange')
+        plt.title(f'Temperature Over Time in {city}')
+        plt.xlabel('Serial')
+        plt.ylabel('Temperature (°C)')
+        plt.xticks(rotation=45)
+        plt.legend()
+        save_plot(os.path.join(PLOTS_DIR, city), f'{date}_temperature.png')
+
+        # Plot humidity data
+        plt.figure(figsize=(10, 6))
+        plt.plot(city_data['Serial'], city_data['Humidity'], label='Humidity (%)', color='green')
+        plt.title(f'Humidity Over Time in {city}')
+        plt.xlabel('Serial')
+        plt.ylabel('Humidity (%)')
+        plt.xticks(rotation=45)
+        plt.legend()
+        save_plot(os.path.join(PLOTS_DIR, city), f'{date}_humidity.png')
+
+def plot_average_temp_humidity(df):
+    """Generate and save plots for average temperature and humidity.
+
+    @param df: DataFrame containing weather data for the day.
+    """
+    date = extract_date_from_df(df)  # Extract date from DataFrame
+    avg_data = df.groupby('CityName')[['Temp', 'Humidity']].mean().reset_index()  # Calculate averages
+
+    # Plot average temperature by city
+    plt.figure(figsize=(10, 6))
+    plt.bar(avg_data['CityName'], avg_data['Temp'], color='skyblue')
+    plt.title('Average Temperature by City')
+    plt.xlabel('City')
+    plt.ylabel('Temperature (°C)')
+    plt.xticks(rotation=45)
+    save_plot(PLOTS_DIR, f'{date}_avg_temp.png')
+
+    # Plot average humidity by city
+    plt.figure(figsize=(10, 6))
+    plt.bar(avg_data['CityName'], avg_data['Humidity'], color='lightgreen')
+    plt.title('Average Humidity by City')
+    plt.xlabel('City')
+    plt.ylabel('Humidity (%)')
+    plt.xticks(rotation=45)
+    save_plot(PLOTS_DIR, f'{date}_avg_humidity.png')
+
+def daychange():
+    """Update daily averages and reset the timestamp table for the new day.
+
+    This function moves the current day's data to the Daily_Averages table,
+    truncates the timestamp_average table, and resets average values for the new day.
+    """
+    connection = connect_db()
+    if not connection:
+        return
+
+    today_date = datetime.now().strftime('%Y-%m-%d')  # Get today's date
+    try:
+        cursor = connection.cursor()
+
+        # Move data to Daily_Averages
+        cursor.execute("""
+            INSERT INTO Daily_Averages (CityID, Date, AvgTemp, MinTemp, MaxTemp, AvgHumidity, MostFreqClimate)
+            SELECT CityID, %s, AvgTemp, MinTemp, MaxTemp, AvgHumidity, MostFreqClimate
+            FROM Cities
+        """, (today_date,))
+        
+        # Truncate timestamp_average for new day's data
+        cursor.execute("TRUNCATE TABLE timestamp_average")
+        
+        # Update cities with new averages
+        cursor.execute("""
+            UPDATE cities
+            SET T1 = AvgTemp,
+                AvgTemp = NULL,
+                MinTemp = NULL,
+                MaxTemp = NULL,
+                AvgHumidity = NULL,
+                MostFreqClimate = NULL
+        """)
+        
+        connection.commit()  # Commit changes to the database
+
+    except mysql.connector.Error as err:
+        print(f"Database error during day change: {err}")
+    finally:
+        cursor.close()  # Close cursor
+        connection.close()  # Close database connection
+
+# Main loop for updating weather data
+def main():
+    """Main function to update weather data at regular intervals."""
+    while True:
+        weather_data = {}
+        for city in CITIES:
+            data = get_weather_data(city)  # Fetch weather data for each city
+            if data:
+                processed_data = process_weather_data(data)  # Process and extract relevant data
+                weather_data[city] = processed_data
+        
+        # Update the database with the fetched weather data
+        update_database(weather_data)
+
+        # Wait for the next update (set your own interval)
+        time.sleep(UPDATE_INERVAL)  # Update every 5 minutes (300 seconds)
+
+if __name__ == "__main__":
+    main()  # Start the main function
