@@ -10,6 +10,7 @@ from add_cities import insert_cities
 import pandas as pd
 import seaborn as sns
 import os
+from config import db_config
 
 API_KEY = '7c5de860ec41f4a02a0a246cad36b91e'
 CITIES = ['Delhi', 'Mumbai', 'Chennai', 'Bangalore', 'Kolkata', 'Hyderabad']
@@ -29,13 +30,6 @@ HIGH_HUMIDITY_THRESHOLD = 80  # percent humidity
 LOW_HUMIDITY_THRESHOLD = 30   # percent humidity
 
 PLOTS_DIR = "plots"
-
-db_config = {
-    'host': 'localhost',    # Update as per your database configuration
-    'user': 'SANYAM',       # Replace with your username
-    'password': 'SANYAM',   # Replace with your password
-    'database': 'WEATHER_SANYAM'  # Replace with your database name
-}
 
 table_city = 'Cities'
 table_daily_avg = 'Daily_Averages'
@@ -471,24 +465,25 @@ def new_interval():
 
     
 if __name__ == "__main__":
-    # last_date = date.today()
-    # while True:
-    #     current_date = date.today()
-    #     if current_date != last_date:
-    #         daychange()
-    #         last_date = current_date
-    #     new_interval()
-    #     time.sleep(UPDATE_INTERVAL)
+    last_date = date.today()
+    while True:
+        current_date = date.today()
+        if current_date != last_date:
+            daychange()
+            last_date = current_date
+        new_interval()
+        time.sleep(UPDATE_INTERVAL)
     
-    while(True):
-        for i in range(2):
-            new_interval()
-            time.sleep(UPDATE_INTERVAL)
-        print("##################################################")
-        print("Day Changing")
-        daychange()
-        print("Day Changed")
-        print("##################################################")
+    # For testing day change, uncomment the below code and remove primary key from Daily_Averages table and add it back after testing
+    # while(True):
+    #     for i in range(2):
+    #         new_interval()
+    #         time.sleep(UPDATE_INTERVAL)
+    #     print("##################################################")
+    #     print("Day Changing")
+    #     daychange()
+    #     print("Day Changed")
+    #     print("##################################################")
         
         
         

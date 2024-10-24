@@ -1,6 +1,6 @@
 import mysql.connector
 from mysql.connector import Error
-from main import db_config
+from config import db_config
 
 # Function to create database and tables
 
@@ -8,11 +8,7 @@ from main import db_config
 def create_database_and_tables():
     try:
         # Connect to MySQL server
-        connection = mysql.connector.connect(
-            host=db_config['host'],
-            user=db_config['user'],
-            password=db_config['password']
-        )
+        connection = mysql.connector.connect(**db_config)
 
         if connection.is_connected():
             cursor = connection.cursor()

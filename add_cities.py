@@ -1,6 +1,6 @@
 import mysql.connector
 from mysql.connector import Error
-from main import db_config
+from config import db_config
 
 # Function to insert cities into the Cities table
 
@@ -54,12 +54,7 @@ def insert_cities():
 
     try:
         # Connect to MySQL server
-        connection = mysql.connector.connect(
-            host=db_config['host'],
-            user=db_config['user'],
-            password=db_config['password'],
-            database=db_config['database']
-        )
+        connection = mysql.connector.connect(**db_config)
 
         if connection.is_connected():
             cursor = connection.cursor()
