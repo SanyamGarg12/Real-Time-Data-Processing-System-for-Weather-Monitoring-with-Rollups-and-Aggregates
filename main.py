@@ -474,7 +474,8 @@ if __name__ == "__main__":
         new_interval()
         time.sleep(UPDATE_INTERVAL)
     
-    # For testing day change, uncomment the below code and remove primary key from Daily_Averages table and add it back after testing
+    #### For testing day change, uncomment the below code and comment out above loop and remove primary key from Daily_Averages table and add it back after testing.
+    #### Note : If primary keys are not removed, the code will throw an error while inserting data into Daily_Averages table as the primary key will be violated.
     # while(True):
     #     for i in range(2):
     #         new_interval()
