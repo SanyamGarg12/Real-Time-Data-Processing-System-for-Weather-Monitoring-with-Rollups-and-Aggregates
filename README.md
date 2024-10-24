@@ -97,6 +97,36 @@
 - main.py will run in an infinite loop fetching data from api and updating database and generating graphs as per description of plots folder.
 - To test [`daychange`](main.py) function, uncomment a code snippet as instructed in main.py.
 - Plots will be generated as the day changes.
+
+## User Preferences
+- In [main.py](main.py) from line 27-30, multiple thresholds are defined which can be altered as per users preference.
+- [`convert_temperature`](main.py) is defined for different units of temperature. By default temperature is in °C.
+
+## Database Description:
+- **There are three tables**
+    
+    ![alt text](image.png)
+- **Cities table**
+    - After executing main.py, it will look something like this:
+    - **Primary Key**: `city_id`
+    - **Columns**: `city_id`, `city_name`, `latitude`, `longitude`
+
+    ![alt text](image-1.png)
+
+- **daily_averages table**
+    - **Primary Key**: `city_id`, `date`
+    - **Foreign Key**: `city_id` (references `Cities.city_id`)
+    - **Columns**: `date`, `city_id`, `average_temperature`, `average_humidity`
+
+    ![alt text](image-2.png)
+
+- **timestamp_average table**
+    - **Primary Key**: `city_id`, `timestamp`
+    - **Foreign Key**: `city_id` (references `Cities.city_id`)
+    - **Columns**: `timestamp`, `city_id`, `temperature`, `humidity`
+
+    ![alt text](image-3.png)
+
 ## License
 This project is licensed under the MIT License. See the LICENSE file for details.
 
